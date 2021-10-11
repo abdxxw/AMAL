@@ -2,6 +2,8 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 ## Installer datamaestro et datamaestro-ml pip install datamaestro datamaestro-ml
 import datamaestro
+from sklearn.model_selection import train_test_split
+import random
 from tqdm import tqdm
 
 writer = SummaryWriter()
@@ -30,17 +32,32 @@ with torch.no_grad():
 #c.backward() ## Erreur
 """
 
-# writer = SummaryWriter()
+writer = SummaryWriter()
+random.seed(42)
+data = datamaestro.prepare_dataset("edu.uci.boston")
+colnames, datax, datay = data.data()
 
-# data = datamaestro.prepare_dataset("edu.uci.boston")
-# colnames, datax, datay = data.data()
-# datax = torch.tensor(datax,dtype=torch.float)
-# datay = torch.tensor(datay,dtype=torch.float).reshape(-1,1)
+Xtrain, Xtest, Ytrain, Ytest = train_test_split(datax, datay, test_size=0.4, random_state=42)
+
+dataX = (Xtrain - Xtrain.min(axis=0)) / (Xtrain.max(axis=0) - Xtrain.min(axis=0))
+dataX_train = torch.tensor(dataX, dtype=torch.float)
+dataY_train = torch.tensor(Ytrain, dtype=torch.float).reshape(-1, 1)
+dataX_test = (Xtest - Xtest.min(axis=0)) / (Xtest.max(axis=0) - Xtest.min(axis=0))
+dataX_test = torch.tensor(dataX_test, dtype=torch.float)
+dataY_test = torch.tensor(Ytest, dtype=torch.float).reshape(-1, 1)
+
+print(dataX_train.shape)
+print(dataY_train.shape)
+print(dataX_test.shape)
+print(dataY_test.shape)
 
 """
+
 def RegLog(X,y,mini_batch,eps,max_iter) : 
-    W = torch.randn(X.shape[1],1, requires_grad=True, dtype=torch.float)
-    b = torch.randn(1,1, requires_grad=True, dtype=torch.float)
+    acc=[]
+    i=0
+    W = torch.randn(X.shape[1],y.shape[1], requires_grad=True, dtype=torch.float)
+    b = torch.randn(y.shape[1],1, requires_grad=True, dtype=torch.float)
     for i in range(max_iter) : 
         ind = torch.randperm(X.shape[0])
         for j in range(0,X.shape[0],mini_batch) : 
@@ -55,23 +72,26 @@ def RegLog(X,y,mini_batch,eps,max_iter) :
             W.grad.data.zero_()
             b.grad.data.zero_() 
 
-            writer.add_scalar('Loss/train', loss, max_iter)
+            writer.add_scalar('Loss/train', loss, i)
     return W,b
 
 
-def test(X_test,y_test,w,b):
-    with torch.no_grad() : 
-        y_test=X_test@w+b
-        loss_test = torch.sum(torch.pow(y_test-y,2))
-
-        writer.add_scalar('Loss/train', loss_test,100)
+def test(X,y,w,b,max_iter,mini_batch):
+    for i in range(max_iter) : 
+        ind = torch.randperm(X.shape[0])
+        for j in range(0,X.shape[0],mini_batch) : 
+            indices = ind[j:j+mini_batch]
+            X_batch,y_batch = X[indices],y[indices]
+            with torch.no_grad() : 
+                y_hat=X_batch@w+b
+                loss_test = torch.sum(torch.pow(y_batch-y_hat,2))
+                writer.add_scalar('Loss/test', loss_test,i)
     return loss_test
 
-x = torch.randn(50, 13)
-y = torch.randn(50, 3)
 
-w,b = RegLog(x,y,1,0.001,100)
-print(w)
+
+w,b = RegLog(dataX_train,dataY_train,1,0.001,100)
+test(dataX_test,dataY_test,w,b,100,1)
 
 """
 
@@ -94,76 +114,104 @@ for i in range(NB_EPOCH):
 #################### Module ##############################
 
 """
-
-x = torch.randn(512,128)
-y = torch.randn(512, 3)
+dim=dataX_train.shape[1]
 
 
 import torch.nn as nn
 import torch.nn.functional as F
 
 class Model(nn.Module) : 
-    def __init__(self) : 
+    def __init__(self,dim) : 
         super(Model, self).__init__()
-        self.fc1 = nn.Linear(128,64)
+        self.fc1 = nn.Linear(dim,64)
         self.tanh = nn.Tanh()
-        self.fc2 = nn.Linear(64,3)
+        self.fc2 = nn.Linear(64,1)
 
     def forward(self,x) : 
         return self.fc2(self.tanh(self.fc1(x)))
 
-model = Model()
+model = Model(dim)
 Loss = nn.MSELoss()
 optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
 n_epochs = 100 
+batch = 10
 model.train()
 for epoch in range(n_epochs) : 
-    train_loss=0.0
-    optimizer.zero_grad()
-    output=model(x)
-    loss = Loss(output,y)
-    loss.backward()
-    optimizer.step()
-    writer.add_scalar('Loss/train_module', loss,100)
+    ind = torch.randperm(dataX_train.shape[0])
+    for j in range(0,dataX_train.shape[0],10): 
+        indices = ind[j:j+batch]
+        X_batch,y_batch = dataX_train[indices],dataY_train[indices]
+
+        train_loss=0.0
+        optimizer.zero_grad()
+        output=model(X_batch)
+        loss = Loss(output,y_batch)
+        loss.backward()
+        optimizer.step()
+        writer.add_scalar('Loss/train_module', loss,epoch)
+
+    model.eval()
+    ind = torch.randperm(dataX_test.shape[0])
+    for j in range(0,dataX_test.shape[0],10): 
+        indices = ind[j:j+batch]
+        X_batch,y_batch = dataX_test[indices],dataY_test[indices]   
+
+        with torch.no_grad():            
+            predictions = model(X_batch).squeeze()
+            loss = Loss(predictions,y_batch)
+            writer.add_scalar('Loss/test_module', loss,epoch)
+
 """
 ##################Module with Sequential############################
 
-data = datamaestro.prepare_dataset("housing.data")
-colnames, datax, datay = data.data()
-datax = torch.tensor(datax, dtype=torch.float)
-datay = torch.tensor(datay, dtype=torch.float).reshape(-1, 1)
 
-x = torch.randn(512, 128)
-y = torch.randn(512, 3)
+dim = dataX_train.shape[1]
 
 import torch.nn as nn
 import torch.nn.functional as F
 
 
 class Model(nn.Module):
-    def __init__(self):
+    def __init__(self, dim):
         super(Model, self).__init__()
-        self.fc = nn.Sequential(nn.Linear(128, 64), nn.Tanh(), nn.Linear(64, 3))
+        l1 = nn.Linear(dim, 64)
+        l2 = nn.Linear(64, 1)
+        torch.nn.init.xavier_uniform(l1.weight)
+        torch.nn.init.xavier_uniform(l2.weight)
+        self.fc = nn.Sequential(l1, nn.Tanh(), l2)
 
     def forward(self, x):
         return self.fc(x)
 
 
-model = Model()
+model = Model(dim)
 Loss = nn.MSELoss()
-optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+optimizer = torch.optim.SGD(model.parameters(), lr=0.001)
 n_epochs = 100
-model.train()
+batch = 100
 for epoch in range(n_epochs):
-    train_loss = 0.0
-    optimizer.zero_grad()
-    output = model(x)
-    loss = Loss(output, y)
-    loss.backward()
-    optimizer.step()
-    print(loss)
-    writer.add_scalar('Loss/train_module~_with_sequential', loss, 100)
+    ind = torch.randperm(dataX_train.shape[0])
+    for j in range(0, dataX_train.shape[0], batch):
+        indices = ind[j:j + batch]
+        X_batch, y_batch = dataX_train[indices], dataY_train[indices]
 
+        train_loss = 0.0
+        optimizer.zero_grad()
+        output = model(X_batch)
+        loss = Loss(output, y_batch)
+        loss.backward()
+        optimizer.step()
+        writer.add_scalar('Loss/train_module', loss, epoch)
 
+    model.eval()
+    ind = torch.randperm(dataX_test.shape[0])
+    for j in range(0, dataX_test.shape[0], batch):
+        indices = ind[j:j + batch]
+        X_batch, y_batch = dataX_test[indices], dataY_test[indices]
+
+        with torch.no_grad():
+            predictions = model(X_batch).squeeze()
+            loss = Loss(predictions, y_batch)
+            writer.add_scalar('Loss/test_module', loss, epoch)
 
 
