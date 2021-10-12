@@ -72,15 +72,13 @@ class AutoEncoder(torch.nn.Module):
         self.en_layer = torch.nn.Linear(dim_in, dim_latent)
         self.en_act = torch.nn.ReLU()
         # Decode
-        self.dec_layer = torch.nn.Linear(dim_latent, dim_in)
-        self.dec_layer.weight = torch.nn.Parameter(self.en_layer.weight.t())
         self.dec_act = torch.nn.Sigmoid()
 
     def encode(self, data):
         return self.en_act(self.en_layer(data))
 
     def decode(self, encoded):
-        return self.dec_act(self.dec_layer(encoded))
+        return self.dec_act(torch.nn.functional.linear(encoded, self.en_layer.weight.t(), bias=None))
 
     def forward(self, data):
         return self.decode(self.encode(data))
