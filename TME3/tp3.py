@@ -83,6 +83,27 @@ class AutoEncoder(torch.nn.Module):
     def forward(self, data):
         return self.decode(self.encode(data))
 
+########################## Highway Network ##########################
+
+
+class HighwayNetwork(nn.Module):
+
+    def __init__(self, dim_in, n_layers):
+        super(HighwayNetwork, self).__init__()
+        self.n_layers = n_layers
+        self.gate = nn.ModuleList([nn.Linear(dim_in, dim_in) for _ in range(n_layers)])
+        self.lin = nn.ModuleList([nn.Linear(dim_in, dim_in) for _ in range(n_layers)])
+        self.nonlin = nn.ModuleList([nn.Linear(dim_in, dim_in) for _ in range(n_layers)])
+
+    def forward(self, x):
+        for l in range(self.n_layers):
+            gate = torch.sigmoid(self.gate[l](x))
+            nonlinear = torch.nn.functional.relu(self.nonlin[l](x))
+            linear = self.lin[l](x)
+            x = gate * nonlinear + (1-gate) * linear
+        return x
+
+
 
 # Tensorboard : rappel, lancer dans une console tensorboard --logdir runs
 writer = SummaryWriter("runs/runs"+datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
@@ -99,49 +120,95 @@ writer = SummaryWriter("runs/runs"+datetime.datetime.now().strftime("%Y%m%d-%H%M
 # savepath = Path("model.pch")
 
 #  TODO:
+#
+# dim = 128
+# max_iter = 50
+# eps = 0.001
+# loss = torch.nn.BCELoss()
+# savepath = Path("model_test.pch")
+#
+# if savepath.is_file():
+#     print("Starting from latest checkpoint")
+#     with savepath.open("rb") as fp:
+#         state = torch.load(fp)
+# else:
+#     auto = AutoEncoder(next(iter(train))[0].shape[1], dim)
+#     auto = auto.to(device)
+#     optim = torch.optim.AdamW(auto.parameters(), lr=eps)
+#     state = State(auto, optim)
+#
+# for epoch in range(state.epoch,max_iter):
+#     print("Epoch : ",epoch)
+#     for x,y in train:
+#         state.optim.zero_grad()
+#         x = x.to(device)
+#         xhat = state.model(x.float())
+#         ltrain = loss(xhat.float(),x.float())
+#         ltrain.backward()
+#         state.optim.step()
+#         state.iteration += 1
+#     # Testing current parameters
+#     for x,y in test:
+#         with torch.no_grad():
+#             x = x.to(device)
+#             xhat = state.model(x.float())
+#             ltest = loss(xhat.float(),x.float())
+#     nbimages = 1
+#     if epoch == 1 or epoch == 25 or epoch == 49 :
+#         images = (x[0:nbimages]).clone().detach().view(nbimages,28,28).unsqueeze(1).repeat(1,3,1,1).float()
+#         images_pred = (xhat[0:nbimages]).clone().detach().view(nbimages,28,28).unsqueeze(1).repeat(1,3,1,1).float()
+#         # Permet de fabriquer une grille d'images
+#         images = make_grid(images)
+#         images_pred = make_grid(images_pred)
+#         # Affichage avec tensorboard
+#         writer.add_image(f'original/'+str(epoch), images, epoch)
+#         writer.add_image(f'pred/'+str(epoch), images_pred, epoch)
+#
+#     writer.add_scalars('AutoEncoderTest/',{'train':ltrain,'test':ltest}, epoch)
+#
+#     with savepath.open("wb") as fp:
+#         state.epoch = epoch + 1
+#         torch.save(state, fp)
+#
 
-dim = 128
-max_iter = 10
-eps = 0.0001
-loss = torch.nn.BCELoss()
+### test highway network ###
+
+n_layers = 2
+max_iter = 50
+eps = 0.001
+loss = torch.nn.CrossEntropyLoss()
 savepath = Path("model_test.pch")
-if False:
+
+if savepath.is_file():
     print("Starting from latest checkpoint")
     with savepath.open("rb") as fp:
         state = torch.load(fp)
 else:
-    auto = AutoEncoder(next(iter(train))[0].shape[1], dim)
-    auto = auto.to(device)
-    optim = torch.optim.AdamW(auto.parameters(), lr=eps)
-    state = State(auto, optim)
+    high = HighwayNetwork(next(iter(train))[0].shape[1], n_layers=n_layers)
+    high = high.to(device)
+    optim = torch.optim.AdamW(high.parameters(), lr=eps)
+    state = State(high, optim)
+
 
 for epoch in range(state.epoch,max_iter):
     print("Epoch : ",epoch)
     for x,y in train:
         state.optim.zero_grad()
         x = x.to(device)
+        y = y.to(device)
         xhat = state.model(x.float())
-        ltrain = loss(xhat.float(),x.float())
+        ltrain = loss(xhat.float(),y.long())
         ltrain.backward()
         state.optim.step()
         state.iteration += 1
+
     # Testing current parameters
     for x,y in test:
         with torch.no_grad():
             x = x.to(device)
+            y = y.to(device)
             xhat = state.model(x.float())
-            ltest = loss(xhat.float(),x.float())
-
-    if epoch == 1 or epoch == 25 or epoch == 49 :
-        images = (x[0:3]).clone().detach().view(3,28,28).unsqueeze(1).repeat(1,3,1,1).float()
-        images_pred = (xhat[0:3]).clone().detach().view(3,28,28).unsqueeze(1).repeat(1,3,1,1).float()
-        # Permet de fabriquer une grille d'images
-        images = make_grid(images)
-        images_pred = make_grid(images_pred)
-        # Affichage avec tensorboard
-        writer.add_image(f'original/'+str(epoch), images, epoch)
-        writer.add_image(f'pred/'+str(epoch), images_pred, epoch)
-
+            ltest = loss(xhat.float(),y.long())
     writer.add_scalars('AutoEncoderTest/',{'train':ltrain,'test':ltest}, epoch)
 
     with savepath.open("wb") as fp:
