@@ -6,30 +6,39 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class RNN(nn.Module):
+    #  TODO:  Implémenter comme décrit dans la question 1
+
     def __init__(self, dim, latent, output):
+
         super(RNN, self).__init__()
         self.dim = dim
         self.latent = latent
         self.output = output
 
-        self.in_layer = nn.Linear(dim, latent)
-        self.latent_layer = nn.Linear(latent, latent)
-        self.out_layer = nn.Linear(latent, output)
+        self.in_layer = nn.Linear((self.dim+self.latent),self.latent)
+        self.out_layer = nn.Linear(self.latent,self.output)
+        self.tanh = nn.Tanh()
+        self.softmax = nn.Softmax()
+        
+    def one_step(self,x,h):
 
-    def one_step(self, x, h):
-        # x (batch×input)
-        # h (batch×latent)
-        return nn.Tanh(self.in_layer(x) + self.latent_layer(h))
+        temp = torch.cat((x,h),1)
+        return self.tanh(self.in_layer(temp))
 
-    def forward(self, x, h):
-        hidden_states = [h]
-        for t in x:
-            h_now = self.one_step(t, hidden_states[-1])
-            hidden_states.append(h_now.clone())
-        return torch.stack(hidden_states, axis=0)
+    def forward(self,x,h=None):
 
-    def decode(self, h):
-        return self.out_layer(h)
+        if h is None:
+            h = torch.zeros(x.shape[0],self.latent)
+        h_history = [h]
+        for i in range(x.shape[1]):
+            h_history.append(self.one_step(x[:,i,:],h_history[-1]))
+
+        return h_history
+
+    def decode(self,h):
+        return self.softmax(self.out_layer(h))
+
+
 
 class SampleMetroDataset(Dataset):
     def __init__(self, data,length=20,stations_max=None):
@@ -39,9 +48,8 @@ class SampleMetroDataset(Dataset):
             * stations_max : normalisation à appliquer
         """
         self.data, self.length= data, length
-        if stations_max is None:
-            ## Si pas de normalisation passée en entrée, calcul du max du flux entrant/sortant
-            self.stations_max = torch.max(self.data.view(-1,self.data.size(2),self.data.size(3)),0)[0]
+        ## Si pas de normalisation passée en entrée, calcul du max du flux entrant/sortant
+        self.stations_max = stations_max if stations_max is not None else torch.max(self.data.view(-1,self.data.size(2),self.data.size(3)),0)[0]
         ## Normalisation des données
         self.data = self.data / self.stations_max
         self.nb_days, self.nb_timeslots, self.classes = self.data.size(0), self.data.size(1), self.data.size(2)
@@ -67,9 +75,8 @@ class ForecastMetroDataset(Dataset):
             * stations_max : normalisation à appliquer
         """
         self.data, self.length= data,length
-        if stations_max is None:
-            ## Si pas de normalisation passée en entrée, calcul du max du flux entrant/sortant
-            self.stations_max = torch.max(self.data.view(-1,self.data.size(2),self.data.size(3)),0)[0]
+        ## Si pas de normalisation passée en entrée, calcul du max du flux entrant/sortant
+        self.stations_max = stations_max if stations_max is not None else torch.max(self.data.view(-1,self.data.size(2),self.data.size(3)),0)[0]
         ## Normalisation des données
         self.data = self.data / self.stations_max
         self.nb_days, self.nb_timeslots, self.classes = self.data.size(0), self.data.size(1), self.data.size(2)
