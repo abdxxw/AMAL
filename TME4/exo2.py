@@ -13,7 +13,7 @@ LENGTH = 20
 # Dimension de l'entrée (1 (in) ou 2 (in/out))
 DIM_INPUT = 2
 # Taille du batch
-BATCH_SIZE = 32
+BATCH_SIZE = 64
 
 
 writer = SummaryWriter("runs/runs"+datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
@@ -94,4 +94,7 @@ def train_classification(rnn,data_train,data_test,lr,max_iter):
 
 
         writer.add_scalars('Prediction/', {'train': torch.tensor(losstrain).mean(), 'test': torch.tensor(losstest).mean()},
+                   iter)
+
+        writer.add_scalars('Prediction_acc/', {'train': torch.tensor(acctrain).mean(), 'test': torch.tensor(acctest).mean()},
                    iter)
