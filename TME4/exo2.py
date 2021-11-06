@@ -2,6 +2,8 @@ from utils import RNN, device,SampleMetroDataset
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
+import datetime
 
 
 # Nombre de stations utilisé
@@ -12,6 +14,9 @@ LENGTH = 20
 DIM_INPUT = 2
 # Taille du batch
 BATCH_SIZE = 32
+
+
+writer = SummaryWriter("runs/runs"+datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
 
 PATH = "data/"
 
@@ -31,55 +36,62 @@ data_test = DataLoader(ds_test, batch_size=BATCH_SIZE, shuffle=False)
 DIM_HIDDEN = 10
 
 
-max_iter = 50
+max_iter = 1001
 lr = 0.001
 
-rnn = RNN(DIM_INPUT,DIM_HIDDEN,CLASSES)
+rnn = RNN(DIM_INPUT, DIM_HIDDEN, CLASSES).to(device)
 
-loss = nn.CrossEntropyLoss()
-optim = torch.optim.AdamW(rnn.parameters(),lr)
+def train_classification(rnn,data_train,data_test,lr,max_iter):
 
-for i in range(max_iter):
-
-    losstrain = []
-    acctrain = []
-
-    for x,y in data_train:
-        yhat = rnn(x)
-        decoded = rnn.decode(yhat[-1])
-        l = loss(decoded,y)
-        l.backward()
-        optim.step()
-        optim.zero_grad()
-
-        acc = sum((decoded.argmax(1) == y.reshape(-1))).item() / y.shape[0]
-        losstrain.append(l)
-        acctrain.append(acc)
+    print("Training for {} epochs".format(max_iter))
 
 
-    losstest = []
-    acctest = []
+    loss = nn.CrossEntropyLoss()
+    optim = torch.optim.AdamW(rnn.parameters(),lr)
 
+    for iter in range(max_iter):
 
-    for x,y in data_test:
-        with torch.no_grad():
+        losstrain = []
+        acctrain = []
 
+        for x,y in data_train:
+            x = x.to(device)
+            y = y.to(device)
             yhat = rnn(x)
-            decoded = rnn.decode(yhat[-1]).squeeze()
+            decoded = rnn.decode(yhat[-1])
             l = loss(decoded,y)
-
+            l.backward()
+            optim.step()
+            optim.zero_grad()
 
             acc = sum((decoded.argmax(1) == y.reshape(-1))).item() / y.shape[0]
-            losstest.append(l)
-            acctest.append(acc)
-
-    if i % 10 == 0:
-      print("iteration {}, loss train : {}, acc train :{}, loss test : {}, acc test : {}".format(i,
-                                torch.tensor(losstrain).mean(),torch.tensor(acctrain).mean(),
-                                torch.tensor(losstrain).mean(),torch.tensor(acctest).mean()))
+            losstrain.append(l)
+            acctrain.append(acc)
 
 
-      #######################################""""
+        losstest = []
+        acctest = []
 
 
-      #  TODO:  Question 2 : prédiction de la ville correspondant à une séquence
+        for x,y in data_test:
+            x = x.to(device)
+            y = y.to(device)
+            with torch.no_grad():
+
+                yhat = rnn(x)
+                decoded = rnn.decode(yhat[-1])
+                l = loss(decoded,y)
+
+
+                acc = sum((decoded.argmax(1) == y.reshape(-1))).item() / y.shape[0]
+                losstest.append(l)
+                acctest.append(acc)
+
+        if iter % 10 == 0:
+          print("iteration {}, loss train : {}, acc train :{}, loss test : {}, acc test : {}".format(iter,
+                                    torch.tensor(losstrain).mean(),torch.tensor(acctrain).mean(),
+                                    torch.tensor(losstest).mean(),torch.tensor(acctest).mean()))
+
+
+        writer.add_scalars('Prediction/', {'train': torch.tensor(losstrain).mean(), 'test': torch.tensor(losstest).mean()},
+                   iter)

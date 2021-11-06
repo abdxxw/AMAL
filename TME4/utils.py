@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
+from torch.utils.tensorboard import SummaryWriter
+import datetime
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -18,25 +20,25 @@ class RNN(nn.Module):
         self.in_layer = nn.Linear((self.dim+self.latent),self.latent)
         self.out_layer = nn.Linear(self.latent,self.output)
         self.tanh = nn.Tanh()
-        self.softmax = nn.Softmax()
         
-    def one_step(self,x,h):
-
+    def one_step(self,x,h=None):
+        if h is None:
+            h = torch.zeros(x.shape[0],self.latent).to(device)
         temp = torch.cat((x,h),1)
         return self.tanh(self.in_layer(temp))
 
     def forward(self,x,h=None):
 
         if h is None:
-            h = torch.zeros(x.shape[0],self.latent)
+            h = torch.zeros(x.shape[0],self.latent).to(device)
         h_history = [h]
         for i in range(x.shape[1]):
             h_history.append(self.one_step(x[:,i,:],h_history[-1]))
 
-        return h_history
+        return h_history[1:]
 
     def decode(self,h):
-        return self.softmax(self.out_layer(h))
+        return self.out_layer(h)
 
 
 
