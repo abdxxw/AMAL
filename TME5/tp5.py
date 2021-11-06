@@ -176,7 +176,7 @@ soft = nn.LogSoftmax(dim=1)
 rnn = RNN(dimbed, DIM_HIDDEN, len(lettre2id)).to(device)
 emb = nn.Embedding(len(id2lettre), dimbed, padding_idx=0).to(device)
 
-def train_text_generation(path,rnn, emb, data, lr, max_iter):
+def train_text_generation(path,rnn, emb, data, lr, max_iter,LSTM=False):
 
     savepath = Path(path)
     if savepath.is_file():
@@ -198,6 +198,7 @@ def train_text_generation(path,rnn, emb, data, lr, max_iter):
         for x in data:
             x = x.to(device)
             h = None
+            C = None
             embed = emb(x)
             # yhat = state.model(embed[:len(x) - 1])
             # decoded = torch.stack([state.model.decode(i) for i in yhat], 2)
@@ -205,7 +206,10 @@ def train_text_generation(path,rnn, emb, data, lr, max_iter):
             # l = loss(decoded, y, padcar=PAD_IX)
             l = 0
             for t in range(len(x) - 1):
-                h = state.model.one_step(embed[t], h)
+                if LSTM:
+                    h, C = state.model.one_step(embed[t], h,C)
+                else:
+                    h = state.model.one_step(embed[t], h)
                 yhat = soft(rnn.decode(h))
                 l+= loss(yhat,x[t+1],PAD_IX)
             l = l/(len(x) - 1)

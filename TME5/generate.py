@@ -10,7 +10,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 soft = nn.LogSoftmax(dim=1)
 
-def generate(rnn, emb, decoder, eos, start="", maxlen=200):
+def generate(rnn, emb, decoder, eos, start="", maxlen=200,LSTM=False):
     """  Fonction de génération (l'embedding et le decodeur être des fonctions du rnn). Initialise le réseau avec start (ou à 0 si start est vide) et génère une séquence de longueur maximale 200 ou qui s'arrête quand eos est généré.
         * rnn : le réseau
         * emb : la couche d'embedding
@@ -25,11 +25,15 @@ def generate(rnn, emb, decoder, eos, start="", maxlen=200):
         print("\ngenerating from nothing, taking most probable char : ")
 
         h = None
+        C = None
         generated = [torch.tensor(torch.randint(len(id2lettre),(1,))).to(device)]
         i=0
         while generated[-1] != eos and i < maxlen:
-            h = rnn.one_step(emb(generated[-1]), h)
-            generated.append(decoder(h).argmax(1))
+            if LSTM:
+                h,C = rnn.one_step(emb(generated[-1]), h,C)
+            else:
+                h = rnn.one_step(emb(generated[-1]), h)
+            generated.append(soft(decoder(h)).argmax(1))
             i+=1
         generated = torch.stack(generated[1:])
         print("".join([id2lettre[int(i)] for i in generated.squeeze()]))
@@ -38,11 +42,15 @@ def generate(rnn, emb, decoder, eos, start="", maxlen=200):
         print("\ngenerating from nothing, taking random char : ")
 
         h = None
+        C = None
         generated = [torch.tensor([0]).to(device)]
         i=0
         while generated[-1] != eos and i < maxlen:
-            h = rnn.one_step(emb(generated[-1]).to(device), h)
-            prob = Categorical(logits=decoder(h))
+            if LSTM:
+                h,C = rnn.one_step(emb(generated[-1]), h,C)
+            else:
+                h = rnn.one_step(emb(generated[-1]), h)
+            prob = Categorical(logits=soft(decoder(h)))
             generated.append(prob.sample())
             i+=1
         generated = torch.stack(generated[1:])
@@ -51,12 +59,16 @@ def generate(rnn, emb, decoder, eos, start="", maxlen=200):
     else :
         print("\ngenerating from start : "+start+" , taking most probable char : ")
         h = None
+        C = None
         yhat = rnn(emb(string2code(x).view(1, -1)).to(device))
         generated = [decoder(yhat[-1]).argmax(1)]
         i=0
         while generated[-1] != eos and i < maxlen:
-            h = rnn.one_step(emb(generated[-1]).float(), h)
-            generated.append(decoder(h).argmax(1))
+            if LSTM:
+                h,C = rnn.one_step(emb(generated[-1]), h,C)
+            else:
+                h = rnn.one_step(emb(generated[-1]), h)
+            generated.append(soft(decoder(h)).argmax(1))
             i+=1
         generated = torch.stack(generated[1:])
         print(x + "".join([id2lettre[int(i)] for i in generated.squeeze()]))
@@ -78,11 +90,21 @@ def generate_beam(rnn, emb, decoder, eos, k, start="", maxlen=200):
         rnd = torch.randint(len(id2lettre),(1,))
         print(id2lettre[int(rnd[0])])
         tmp = torch.tensor(rnd).to(device)
-        h = rnn.one_step(emb(tmp).float())
+
+        if LSTM:
+            h, C = rnn.one_step(emb(tmp).float())
+        else:
+            h = rnn.one_step(emb(tmp).float())
     else :
 
         print("\ngenerating from start : "+start+" , taking most probable char : ")
         h = rnn(emb(string2code(start).view(1, -1).to(device)).float())[-1]
+
+        if LSTM:
+            h, C = rnn(emb(string2code(start).view(1, -1).to(device)).float())
+            h = h[-1]
+        else:
+            h = rnn(emb(string2code(start).view(1, -1).to(device)).float())[-1]
 
     candidats = soft(decoder(h)).squeeze()
     candidats = [([i], s) for i, s in enumerate(candidats.tolist())]
@@ -92,6 +114,12 @@ def generate_beam(rnn, emb, decoder, eos, k, start="", maxlen=200):
         currenttop = []
         for x in candidats:
             h = rnn(emb(torch.tensor(x[0]).view(1, -1).to(device)))[-1]
+
+            if LSTM:
+                h, C = rnn(emb(torch.tensor(x[0]).view(1, -1).to(device)))
+                h = h[-1]
+            else:
+                h = rnn(emb(torch.tensor(x[0]).view(1, -1).to(device)))[-1]
             topk = soft(decoder(h)).squeeze(0)
             topk = [([i], s) for i, s in enumerate(topk.tolist())]
             currenttop += [(x[0] + j, x[1] + s) for j, s in topk]
