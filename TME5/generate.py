@@ -1,6 +1,7 @@
 from textloader import  string2code, id2lettre
 import math
 import torch
+import torch.nn as nn
 
 from torch.distributions import Categorical
 

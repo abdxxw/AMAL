@@ -28,7 +28,6 @@ class RNN(nn.Module):
         return self.tanh(self.in_layer(temp))
 
     def forward(self,x,h=None):
-
         if h is None:
             h = torch.zeros(x.shape[0],self.latent).to(device)
         h_history = [h]

@@ -35,7 +35,7 @@ DIM_HIDDEN = 10
 max_iter = 51
 lr = 0.001
 
-rnn = RNN(len(lettre2id), DIM_HIDDEN, len(lettre2id)).to(device)
+rnn = RNN(DIM_INPUT, DIM_HIDDEN, DIM_INPUT).to(device)
 
 def train_prediction(rnn,data_train,data_test,lr,max_iter):
 
