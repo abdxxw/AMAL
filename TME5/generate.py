@@ -3,6 +3,7 @@ import math
 import torch
 import torch.nn as nn
 
+
 from torch.distributions import Categorical
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -61,8 +62,12 @@ def generate(rnn, emb, decoder, eos, start="", maxlen=200,LSTM=False):
         print("\ngenerating from start : "+start+" , taking most probable char : ")
         h = None
         C = None
-        yhat = rnn(emb(string2code(x).view(1, -1)).to(device))
-        generated = [decoder(yhat[-1]).argmax(1)]
+        if LSTM:
+            h,C = rnn(emb(string2code(start).view(1, -1)).to(device))
+            h = h[-1]
+        else:
+            h = rnn(emb(string2code(start).view(1, -1)).to(device))[-1]
+        generated = [decoder(h).argmax(1)]
         i=0
         while generated[-1] != eos and i < maxlen:
             if LSTM:
@@ -72,7 +77,7 @@ def generate(rnn, emb, decoder, eos, start="", maxlen=200,LSTM=False):
             generated.append(soft(decoder(h)).argmax(1))
             i+=1
         generated = torch.stack(generated[1:])
-        print(x + "".join([id2lettre[int(i)] for i in generated.squeeze()]))
+        print(start + "".join([id2lettre[int(i)] for i in generated.squeeze()]))
 
 def generate_beam(rnn, emb, decoder, eos, k, start="", maxlen=200):
     """
