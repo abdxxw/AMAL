@@ -227,5 +227,5 @@ def train_text_generation(path,rnn, emb, data, lr, max_iter,LSTM=False):
         writer.add_scalars('TextGeneration/', {'train': torch.tensor(losstrain).mean()}, iter)
 
     with savepath.open("wb") as fp:
-        state.epoch = epoch + 1
+        state.epoch = iter + 1
         torch.save(state, fp)
