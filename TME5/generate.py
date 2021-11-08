@@ -12,7 +12,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 soft = nn.LogSoftmax(dim=1)
 
-def generate(rnn, emb, decoder, eos, start="", maxlen=200,LSTM=False):
+def generate(rnn, emb, decoder, eos, start="", maxlen=200,LSTM=False,argmax=True):
     """  Fonction de génération (l'embedding et le decodeur être des fonctions du rnn). Initialise le réseau avec start (ou à 0 si start est vide) et génère une séquence de longueur maximale 200 ou qui s'arrête quand eos est généré.
         * rnn : le réseau
         * emb : la couche d'embedding
@@ -24,7 +24,7 @@ def generate(rnn, emb, decoder, eos, start="", maxlen=200,LSTM=False):
 
     #  TODO:  Implémentez la génération à partir du RNN, et d'une fonction decoder qui renvoie les logits (logarithme de probabilité à une constante près, i.e. ce qui vient avant le softmax) des différentes sorties possibles
     if start == "":
-        print("\ngenerating from nothing, taking most probable char : ")
+        #print("\ngenerating from nothing : ")
 
         h = None
         C = None
@@ -35,31 +35,17 @@ def generate(rnn, emb, decoder, eos, start="", maxlen=200,LSTM=False):
                 h,C = rnn.one_step(emb(generated[-1]), h,C)
             else:
                 h = rnn.one_step(emb(generated[-1]), h)
-            generated.append(soft(decoder(h)).argmax(1))
-            i+=1
-        generated = torch.stack(generated[1:])
-        print("".join([id2lettre[int(i)] for i in generated.squeeze()]))
-
-
-        print("\ngenerating from nothing, taking random char : ")
-
-        h = None
-        C = None
-        generated = [torch.tensor([0]).to(device)]
-        i=0
-        while generated[-1] != eos and i < maxlen:
-            if LSTM:
-                h,C = rnn.one_step(emb(generated[-1]), h,C)
+            if argmax:
+                generated.append(soft(decoder(h)).argmax(1))
             else:
-                h = rnn.one_step(emb(generated[-1]), h)
-            prob = Categorical(logits=soft(decoder(h)))
-            generated.append(prob.sample())
+                prob = Categorical(logits=soft(decoder(h)))
+                generated.append(prob.sample())
             i+=1
         generated = torch.stack(generated[1:])
         print("".join([id2lettre[int(i)] for i in generated.squeeze()]))
 
     else :
-        print("\ngenerating from start : "+start+" , taking most probable char : ")
+        #print("\ngenerating from start : "+start)
         h = None
         C = None
         if LSTM:
@@ -74,7 +60,11 @@ def generate(rnn, emb, decoder, eos, start="", maxlen=200,LSTM=False):
                 h,C = rnn.one_step(emb(generated[-1]), h,C)
             else:
                 h = rnn.one_step(emb(generated[-1]), h)
-            generated.append(soft(decoder(h)).argmax(1))
+            if argmax:
+                generated.append(soft(decoder(h)).argmax(1))
+            else:
+                prob = Categorical(logits=soft(decoder(h)))
+                generated.append(prob.sample())
             i+=1
         generated = torch.stack(generated[1:])
         print(start + "".join([id2lettre[int(i)] for i in generated.squeeze()]))
