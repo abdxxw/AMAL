@@ -70,7 +70,7 @@ def generate(rnn, emb, decoder, eos, start="", maxlen=200, LSTM=False, argmax=Tr
         print(start + "".join([id2lettre[int(i)] for i in generated.squeeze()]))
 
 
-def generate_beam(rnn, emb, decoder, eos, k, start="", maxlen=200, LSTM=False):
+def generate_beam(rnn, emb, decoder, eos, k, start="", maxlen=200, LSTM=False, pNuc=None):
     """
         Génere une séquence en beam-search : à chaque itération, on explore pour chaque candidat les k symboles les plus probables; puis seuls les k meilleurs candidats de l'ensemble des séquences générées sont conservés (au sens de la vraisemblance) pour l'itération suivante.
         * rnn : le réseau
@@ -82,7 +82,8 @@ def generate_beam(rnn, emb, decoder, eos, k, start="", maxlen=200, LSTM=False):
         * maxlen : longueur maximale
     """
     #  TODO:  Implémentez le beam Search
-    nuc = p_nucleus(decoder, 0.9)
+    if pNuc is not None:
+        nuc = p_nucleus(decoder, pNuc)
     h = None
     C = None
     if start == "":
@@ -106,7 +107,10 @@ def generate_beam(rnn, emb, decoder, eos, k, start="", maxlen=200, LSTM=False):
         else:
             h = rnn(emb(string2code(start).view(1, -1).to(device)).float())[-1]
 
-    candidats = soft(decoder(h)).squeeze()
+    if pNuc is not None:
+        candidats = nuc(h)
+    else:
+        candidats = soft(decoder(h)).squeeze()
     candidats = [([i], s, h, C) for i, s in enumerate(candidats.tolist())]
     candidats = sorted(candidats, key=lambda x: -x[1])[:k]
 
@@ -117,7 +121,10 @@ def generate_beam(rnn, emb, decoder, eos, k, start="", maxlen=200, LSTM=False):
                 h, C = rnn.one_step(emb(torch.tensor(x[0][-1]).view(1).to(device)), x[2], x[3])
             else:
                 h = rnn.one_step(emb(torch.tensor(x[0][-1]).view(1).to(device)), x[2])
-            topk = soft(decoder(h)).squeeze()
+            if pNuc is not None:
+                topk = nuc(h)
+            else:
+                topk = soft(decoder(h)).squeeze()
             topk = [([i], s) for i, s in enumerate(topk.tolist())]
             currenttop += [(x[0] + j, x[1] + s, h, C) for j, s in topk]
 
@@ -148,14 +155,18 @@ def p_nucleus(decoder, alpha: float):
            * h (torch.Tensor): L'état à décoder
         """
         #  TODO:  Implémentez le Nucleus sampling ici (pour un état s)
-        prob = torch.softmax(decoder(h), dim=1).squeeze(0)
-        sorted_out, indices = torch.sort(prob, descending=True)
-        top_indices = indices[sorted_out.cumsum(0) < alpha]
-        top_indices = torch.cat((top_indices, indices[len(top_indices)].view(1)))
-        top = sorted_out[top_indices]
-        not_wanted = prob.detach().clone()
-        not_wanted[top_indices] = 0
+        logits = decoder(h).squeeze()
 
-        return (prob - not_wanted) / top.sum()
+        sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+        cumulative_probs = torch.cumsum(torch.nn.functional.softmax(sorted_logits, dim=-1), dim=-1)
+
+        sorted_indices_to_remove = cumulative_probs > alpha
+
+        sorted_indices_to_remove[1:] = sorted_indices_to_remove[:-1].clone()
+        sorted_indices_to_remove[0] = 0
+        indices_to_remove = sorted_indices[sorted_indices_to_remove]
+        logits[indices_to_remove] = 0
+
+        return logits / logits.sum()
 
     return compute
