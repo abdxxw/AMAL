@@ -25,7 +25,7 @@ logging.basicConfig(level=logging.INFO)
 writer = SummaryWriter("runs/runs" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
 
 FILE = "eng-fra.txt"
-MAX_LEN = 100
+MAX_LEN = 10
 BATCH_SIZE = 100
 H_SIZE = 32
 EMB_SIZE = 32
@@ -132,16 +132,16 @@ test_loader = DataLoader(datatest, collate_fn=collate, batch_size=BATCH_SIZE, sh
 
 
 class Encoder(torch.nn.Module):
-	def __init__(self, vocab_size, emb_size, h_size):
-		super(Encoder, self).__init__()
-		self.embedding = torch.nn.Embedding(vocab_size, emb_size, padding_idx=0)
-		self.gru = torch.nn.GRU(emb_size, h_size)
+    def __init__(self, vocab_size, emb_size, h_size):
+        super(Encoder, self).__init__()
+        self.embedding = torch.nn.Embedding(vocab_size, emb_size, padding_idx=0)
+        self.gru = torch.nn.GRU(emb_size, h_size)
   
 
-	def forward(self, x):
-		x_emb = self.embedding(x)
-		_, h = self.gru(x_emb)
-		return h
+    def forward(self, x):
+        x_emb = self.embedding(x)
+        _, h = self.gru(x_emb)
+        return h
 
 
 class Decoder(torch.nn.Module):
@@ -162,15 +162,15 @@ class Decoder(torch.nn.Module):
         _, hidden_state = self.gru(deb_emb, hidden)
         output = self.linear(hidden_state)
         all_output = [output]
-		
+        
         for i in range(seq_len-1):
             x_emb = self.relu(self.embedding(x[i].unsqueeze(0)))
             _, hidden_state = self.gru(x_emb, hidden_state)
             output = self.linear(hidden_state)
             all_output.append(output)
-		
+        
         return torch.stack(all_output, 2)
-		
+        
     def generate(self, h, lenseq=None):
         batch_size = h.shape[1]
         vec = torch.ones(batch_size)*2
@@ -182,8 +182,8 @@ class Decoder(torch.nn.Module):
             _, h = self.gru(deb_emb, h)
             output = self.linear(h)
             all_output.append(output)
-            vec = torch.argmax(self.sm(output), 2)
-        return torch.stack(all_output, 2) 		
+            vec = torch.argmax(output, 2)
+        return torch.stack(all_output, 2)       
 
 
 
@@ -198,7 +198,7 @@ optim_decoder = torch.optim.Adam(model_decoder.parameters(), lr=0.01)
 
 
 
-for i in range(100):
+for i in range(50):
     losstrain = []
     losstest = []
     for x in train_loader:
@@ -221,7 +221,7 @@ for i in range(100):
             output = model_decoder.generate(hn, lenseq=len(x[2]))
             loss = criterion(torch.transpose(output.squeeze(0), 1, 2), x[2].T)
             losstest.append(loss)       
-            if i == 98 :
+            if i == 98 or i==99 or i==97 or i==96:
                 pred = torch.argmax(torch.squeeze(output, 0), 2)
                 print("sequence prédit : ", vocFra.getwords(pred.T[:,-1]))
                 print("séquence vrai : ", vocFra.getwords(x[2][:,-1]))
