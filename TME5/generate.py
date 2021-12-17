@@ -155,18 +155,18 @@ def p_nucleus(decoder, alpha: float):
            * h (torch.Tensor): L'état à décoder
         """
         #  TODO:  Implémentez le Nucleus sampling ici (pour un état s)
-        logits = decoder(h).squeeze()
+        prob = torch.nn.functional.softmax(soft(decoder(h)).squeeze(), dim=-1)
 
-        sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-        cumulative_probs = torch.cumsum(torch.nn.functional.softmax(sorted_logits, dim=-1), dim=-1)
+        sorted, sorted_indices = torch.sort(prob, descending=True)
+        cum_probs = torch.cumsum(sorted, dim=-1)
 
-        sorted_indices_to_remove = cumulative_probs > alpha
+        indices_remove = cum_probs > alpha
 
-        sorted_indices_to_remove[1:] = sorted_indices_to_remove[:-1].clone()
-        sorted_indices_to_remove[0] = 0
-        indices_to_remove = sorted_indices[sorted_indices_to_remove]
-        logits[indices_to_remove] = 0
+        indices_remove[1:] = indices_remove[:-1].clone()
+        indices_remove[0] = 0
+        remove = sorted_indices[indices_remove]
+        prob[remove] = 0
 
-        return logits / logits.sum()
+        return torch.log(prob / prob.sum())
 
     return compute
