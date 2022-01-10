@@ -12,13 +12,22 @@ from pathlib import Path
 from typing import List
 import matplotlib.pyplot as plt
 import numpy as np
-import torch.distributions.categorical as categorical
 from torch.utils.tensorboard import SummaryWriter
 import time
 import re
 import datetime
-from torch.utils.tensorboard import SummaryWriter
 import random
+import sentencepiece as spm
+
+
+spm.SentencePieceTrainer.train(
+input="eng-fra.txt",
+model_prefix = 'model_vocab',
+vocab_size = 1000 , 
+user_defined_symbols = ['PAD','EOS']
+)
+
+s = spm.SentencePieceProcessor(model_file="model_vocab.model")
 
 logging.basicConfig(level=logging.INFO)
 
@@ -93,13 +102,13 @@ class Vocabulary:
 
 
 class TradDataset():
-    def __init__(self,data,vocOrig,vocDest,adding=True,max_len=MAX_LEN):
+    def __init__(self,data,sp,adding=True,max_len=MAX_LEN):
         self.sentences =[]
         for s in tqdm(data.split("\n")):
             if len(s)<1:continue
             orig,dest=map(normalize,s.split("\t")[:2])
             if len(orig)>max_len: continue
-            self.sentences.append((torch.tensor([vocOrig.get(o) for o in orig.split(" ")]+[Vocabulary.EOS]),torch.tensor([vocDest.get(o) for o in dest.split(" ")]+[Vocabulary.EOS])))
+            self.sentences.append((torch.tensor(sp.encode(orig,out_type=int)),torch.tensor(sp.encode(dest,out_type=int))))
     def __len__(self):return len(self.sentences)
     def __getitem__(self,i): return self.sentences[i]
 
@@ -124,8 +133,8 @@ idxTrain = int(0.8*len(lines))
 vocEng = Vocabulary(True)
 vocFra = Vocabulary(True)
 
-datatrain = TradDataset("".join(lines[:idxTrain]),vocEng,vocFra,max_len=MAX_LEN)
-datatest = TradDataset("".join(lines[idxTrain:]),vocEng,vocFra,max_len=MAX_LEN)
+datatrain = TradDataset("".join(lines[:idxTrain]),s,max_len=MAX_LEN)
+datatest = TradDataset("".join(lines[idxTrain:]),s,max_len=MAX_LEN)
 
 train_loader = DataLoader(datatrain, collate_fn=collate, batch_size=BATCH_SIZE, shuffle=True)
 test_loader = DataLoader(datatest, collate_fn=collate, batch_size=BATCH_SIZE, shuffle=True)
@@ -150,15 +159,17 @@ class Decoder(torch.nn.Module):
         self.embedding = torch.nn.Embedding(vocab_size, emb_size, padding_idx=0)
         self.gru = torch.nn.GRU(emb_size, h_size)
         self.linear = torch.nn.Linear(h_size, vocab_size)
+        
         self.relu = torch.nn.ReLU()
+        self.sm = torch.nn.Softmax(dim=2)
 
 
-    def forward(self, x, hidden):
+    def forward(self, x, hidden): # Pour le mode teacher forcing
         seq_len, batch_size = x.shape
-        vec = torch.ones(batch_size)*2
-        vec = vec.long()
-        vec=vec.unsqueeze(0)
-        deb_emb = self.relu(self.embedding(vec))
+        deb = torch.ones(batch_size)*2
+        deb = deb.long()
+        deb=deb.unsqueeze(0)
+        deb_emb = self.relu(self.embedding(deb))
         _, hidden_state = self.gru(deb_emb, hidden)
         output = self.linear(hidden_state)
         all_output = [output]
@@ -173,28 +184,36 @@ class Decoder(torch.nn.Module):
         
     def generate(self, h, lenseq=None):
         batch_size = h.shape[1]
-        vec = torch.ones(batch_size)*2
-        vec = vec.long()
-        vec=vec.unsqueeze(0)
+        deb = torch.ones(batch_size)*2
+        deb = deb.long()
+        deb=deb.unsqueeze(0)
         all_output = []
+        
         while len(all_output) < lenseq:
-            deb_emb = self.relu(self.embedding(vec))
+            deb_emb = self.relu(self.embedding(deb))
             _, h = self.gru(deb_emb, h)
             output = self.linear(h)
             all_output.append(output)
-            vec = torch.argmax(output, 2)
+            deb = torch.argmax(self.sm(output), 2)
+
         return torch.stack(all_output, 2)       
 
 
 
-model_encoder = Encoder(vocEng.__len__(), EMB_SIZE, H_SIZE)
-model_decoder = Decoder(vocFra.__len__(), EMB_SIZE, H_SIZE)
+model_encoder = Encoder(1000, EMB_SIZE, H_SIZE)
+model_decoder = Decoder(1000, EMB_SIZE, H_SIZE)
 
 criterion = torch.nn.CrossEntropyLoss()
 
 optim_encoder = torch.optim.Adam(model_encoder.parameters(), lr=0.01)
 optim_decoder = torch.optim.Adam(model_decoder.parameters(), lr=0.01)
 
+loss_train = []
+loss_test = []
+
+all_originals = []
+all_expected = []
+all_trad = []
 
 
 
@@ -205,6 +224,7 @@ for i in range(100):
         optim_encoder.zero_grad()
         optim_decoder.zero_grad()
         hn = model_encoder(x[0]) 
+
         if random.random() < teacher_forcing_ratio :
             output = model_decoder(x[2], hidden=hn)
         else:
@@ -220,11 +240,13 @@ for i in range(100):
             hn = model_encoder(x[0])
             output = model_decoder.generate(hn, lenseq=len(x[2]))
             loss = criterion(torch.transpose(output.squeeze(0), 1, 2), x[2].T)
-            losstest.append(loss)       
-            if i == 98 or i==99:
+            losstest.append(loss)
+            
+            if i == 9 or i==8 or i==97 or i==96:
                 pred = torch.argmax(torch.squeeze(output, 0), 2)
-                print("sequence prédit : ", vocFra.getwords(pred.T[:,-1]))
-                print("séquence vrai : ", vocFra.getwords(x[2][:,-1]))
+                #print("pred : ", s.decode(pred.T[:,-1]))
+                #print("true : ", s.decode(x[0][:,-1]))
     
     print("iteration {}, loss test : {}".format(i,torch.tensor(losstest).mean()))
     writer.add_scalars('Texttranslation', {'train': torch.tensor(losstrain).mean(),'test': torch.tensor(losstest).mean()}, i)
+

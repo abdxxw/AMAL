@@ -103,10 +103,10 @@ test_data = TaggingDataset(ds.test, words, tags, False)
 
 logging.info("Vocabulary size: %d", len(words))
 
-
+L=20
 BATCH_SIZE = 64
-EMB_SIZE = 100
-H_SIZE = 10
+EMB_SIZE = 30
+H_SIZE = 30
 NB_EPOCH = 5
 
 train_loader = DataLoader(train_data, collate_fn=collate, batch_size=BATCH_SIZE, shuffle=True)
@@ -141,36 +141,34 @@ model = TaggingModel(words.__len__(), EMB_SIZE, H_SIZE, tags.__len__())
 model = model.to(device)
 model.apply(init_weights)
 criterion = torch.nn.CrossEntropyLoss(ignore_index = 0)
-optim = torch.optim.Adam(model.parameters(),lr=0.1)
+optim = torch.optim.Adam(model.parameters())
 
-def categorical_accuracy(preds, y, tag_pad_idx):
-    """
-    Returns accuracy per batch, i.e. if you get 8/10 right, this returns 0.8, NOT 8
-    """
+def accuracy(preds, y, tag_pad_idx):
+
     max_preds = preds.argmax(dim = 1, keepdim = True) # get the index of the max probability
     non_pad_elements = (y != tag_pad_idx).nonzero()
     correct = max_preds[non_pad_elements].squeeze(1).eq(y[non_pad_elements])
     return correct.sum() / y[non_pad_elements].shape[0]
 
 
-
+infos = []
 loss_train_value=[]
 acc_train_value = []
 loss_test_value=[]
 acc_test_value = []
-for i in range(50):
+for i in range(30):
     loss_train = []
     acc_train = []
     for x,y in train_loader:
         optim.zero_grad()
-        for t in np.random.randint(0,20,5) :
+        for t in np.random.randint(0,L,3) :
             for w in np.random.randint(0,len(x[:,t]),3) :     
                 x[:,t][w]=1
         pred = model(x)
         predictions = pred.view(-1, pred.shape[-1])
         y = y.view(-1)
         loss = criterion(predictions, y)
-        acc = categorical_accuracy(predictions, y, 0)
+        acc = accuracy(predictions, y, 0)
         acc_train.append(acc)
         loss_train.append(loss)
         loss.backward()
@@ -186,9 +184,14 @@ for i in range(50):
             predictions = pred.view(-1, pred.shape[-1])
             y1 = y.view(-1)
             loss = criterion(predictions, y1)
-            acc = categorical_accuracy(predictions, y1, 0)
+            acc = accuracy(predictions, y1, 0)
             acc_test.append(acc)
             loss_test.append(loss)
+    phrase = words.getwords(x[:, 0])
+    original = tags.getwords(y[:,0])
+    cl= torch.max(pred,2)[1]
+    pred = tags.getwords(cl[:,0])
+    infos.append((phrase, original, pred))
     loss_train_value.append(torch.tensor(loss_train).mean())
     loss_test_value.append(torch.tensor(loss_test).mean())
     acc_train_value.append(torch.tensor(acc_train).mean())
@@ -210,4 +213,4 @@ plt.plot(np.arange(len(acc_train_value)), acc_train_value, label="train")
 plt.plot(np.arange(len(acc_test_value)), acc_test_value, label="test")
 ax.legend()
 plt.savefig(f"acc_tagging_")  
-
+ 
